@@ -1,0 +1,727 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>IPTV Streams — Broadcast Desk</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html, body {
+      background: radial-gradient(ellipse at center, #0a0c16 0%, #030408 100%);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* 1. Constrained top bar (exactly 64px tall, absolute layout) */
+    #top-banner {
+      background: rgba(8, 10, 22, 0.95);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+      padding: 0 20px;
+      height: 64px;
+      width: 100%;
+      flex-shrink: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    }
+    .banner-content {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+    }
+    .channel-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      overflow: hidden;
+      flex: 1;
+    }
+    #top-banner h1 {
+      margin: 0;
+      font-size: 14px;
+      color: #3b82f6;
+      text-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+      font-weight: 950;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+      padding-right: 16px;
+    }
+    .info-line {
+      font-size: 11px;
+      font-family: monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 320px;
+    }
+    .now { color: #10b981; font-weight: bold; }
+    .next { color: #94a3b8; }
+    .highlight { color: #f59e0b; font-weight: bold; }
+    
+    #clock-pill {
+      background: rgba(15, 23, 42, 0.82);
+      border: 1px solid rgba(59, 130, 246, 0.25);
+      padding: 6px 12px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background-color: #ef4444;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #ef4444;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.15); }
+      100% { opacity: 0.4; transform: scale(0.9); }
+    }
+    #clock {
+      font-size: 12px;
+      color: #10b981;
+      font-weight: bold;
+      font-family: monospace;
+      text-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+    }
+
+    /* 2. Centered Cinema Video Monitor console desk */
+    #video-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+    #video-desk-frame {
+      width: 100%;
+      max-width: 1000px; /* Constrained broadcast display monitor */
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 16px;
+      border: 3px solid #1e293b;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.95),
+                  0 0 40px rgba(59, 130, 246, 0.12);
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #media-stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    #video-player {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+      display: block;
+    }
+    
+    /* Elegant curtain animations during skips */
+    #curtain-overlay {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      z-index: 20;
+      pointer-events: none;
+      display: flex;
+    }
+    #curtain-left, #curtain-right {
+      position: absolute;
+      height: 100%; width: 50.5%;
+      background: #04050a;
+      transition: transform 0.45s cubic-bezier(0.77, 0, 0.175, 1);
+    }
+    #curtain-left { left: 0; transform: translateX(-100%); }
+    #curtain-right { right: 0; transform: translateX(100%); }
+    #curtain-overlay.closed #curtain-left { transform: translateX(0); }
+    #curtain-overlay.closed #curtain-right { transform: translateX(0); }
+    #curtain-left::after { content:''; position:absolute; top:0; right:0; width:2px; height:100%; background:#3b82f6; box-shadow:0 0 10px rgba(59,130,246,0.8); }
+    #curtain-right::after { content:''; position:absolute; top:0; left:0; width:2px; height:100%; background:#3b82f6; box-shadow:0 0 10px rgba(59,130,246,0.8); }
+
+    /* Overlay Control Bubble HUD button and full-screen state */
+    #control-bubble {
+      position: absolute;
+      bottom: 24px; right: 84px;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 50%;
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 150;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      font-size: 16px;
+      color: #3b82f6;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+    #control-bubble:hover {
+      background: rgba(59, 130, 246, 0.22);
+      border-color: #3b82f6;
+      transform: scale(1.08);
+    }
+    #fullscreen-btn {
+      position: absolute;
+      bottom: 24px; right: 24px;
+      z-index: 150;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 50%;
+      width: 44px; height: 44px;
+      color: #3b82f6;
+      font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+    #fullscreen-btn:hover {
+      background: rgba(59, 130, 246, 0.22);
+      border-color: #3b82f6;
+      transform: scale(1.08);
+    }
+
+    /* 3. Constrained Playlist strip at bottom */
+    #playlist-strip-container {
+      background: rgba(8, 10, 22, 0.95);
+      border-top: 1px solid rgba(59, 130, 246, 0.15);
+      padding: 12px 20px;
+      height: 96px;
+      flex-shrink: 0;
+      z-index: 900;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
+    }
+    .strip-wrapper {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      height: 100%;
+    }
+    .strip-label {
+      font-size: 10px;
+      font-weight: 900;
+      font-family: monospace;
+      color: #64748b;
+      writing-mode: vertical-lr;
+      transform: rotate(180deg);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      padding-right: 12px;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .guide-strip {
+      flex: 1;
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 4px 0;
+      height: 100%;
+      align-items: center;
+    }
+    .guide-strip::-webkit-scrollbar {
+      height: 4px;
+    }
+    .guide-strip::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.2);
+    }
+    .guide-strip::-webkit-scrollbar-thumb {
+      background: rgba(59, 130, 246, 0.25);
+      border-radius: 2px;
+    }
+    
+    /* Elegant Lazy Card Elements always showing at least three cards horizontally */
+    .guide-item {
+      flex: 0 0 200px;
+      height: 58px;
+      background: rgba(15, 23, 42, 0.62);
+      border: 1px solid rgba(71, 85, 105, 0.32);
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: hidden;
+    }
+    .guide-item:hover {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.6);
+      transform: translateY(-2px);
+    }
+    .guide-item.current {
+      background: rgba(16, 185, 129, 0.12);
+      border-color: #10b981;
+      box-shadow: 0 0 10px rgba(16, 185, 129, 0.22);
+    }
+    .guide-title {
+      font-size: 11px;
+      font-weight: bold;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #e2e8f0;
+      margin-bottom: 3px;
+    }
+    .guide-time {
+      font-size: 9px;
+      color: #64748b;
+      font-family: monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    /* Card structural skeletons loaders */
+    .card-skeleton {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      justify-content: center;
+    }
+    .card-skeleton::before {
+      content: '';
+      width: 75%;
+      height: 8px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 200% 100%;
+      animation: skelGlow 1.5s infinite linear;
+    }
+    .card-skeleton::after {
+      content: '';
+      width: 45%;
+      height: 6px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 200% 100%;
+      animation: skelGlow 1.5s infinite linear;
+    }
+    @keyframes skelGlow {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* Responsive scaling styles */
+    @media (max-width: 768px) {
+      body {
+        overflow-y: auto;
+        overflow-x: hidden;
+        height: auto;
+        min-height: 100%;
+      }
+      #top-banner {
+        height: auto;
+        padding: 12px 16px;
+      }
+      .banner-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+      }
+      .channel-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+      }
+      #top-banner h1 {
+        border-right: none;
+        padding-right: 0;
+        font-size: 13px;
+      }
+      #video-container {
+        padding: 12px;
+        min-height: 220px;
+      }
+      #playlist-strip-container {
+        height: auto;
+        padding: 14px 16px;
+      }
+      .strip-wrapper {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+      }
+      .strip-label {
+        writing-mode: horizontal-tb;
+        transform: rotate(0deg);
+        height: auto;
+        justify-content: flex-start;
+        border-right: none;
+        padding-right: 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        padding-bottom: 6px;
+      }
+      .guide-strip {
+        gap: 10px;
+        height: 60px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="file-protocol-warning" style="display: none; background: #ea580c; color: #ffffff; font-family: system-ui, -apple-system, sans-serif; padding: 12px 24px; text-align: center; font-size: 13px; font-weight: 600; z-index: 10000; position: relative; border-bottom: 2px solid #c2410c; align-items: center; justify-content: center; gap: 15px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); flex-shrink: 0;" role="alert">
+    <span style="flex: 1; text-align: center;">⚠️ <strong>Local Security Warning:</strong> You are viewing this page directly via the <code>file://</code> protocol. Standard live streaming HLS segments (.m3u8) or AJAX requests may fail to play or load due to browser CORS and local sandbox security restrictions. If live streaming segments fail, please host this file with a local web server (e.g., run <code>npx serve</code> in this directory).</span>
+    <button onclick="document.getElementById('file-protocol-warning').style.display='none'" style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.4); color: white; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; text-transform: uppercase; transition: all 0.2s; white-space: nowrap;">Dismiss</button>
+  </div>
+  <script>
+    if (window.location.protocol === 'file:') {
+      document.getElementById('file-protocol-warning').style.display = 'flex';
+    }
+  </script>
+  <!-- LIBERTY EXPRESS HOSTING RETURN VECTOR -->
+  <a href="https://www.liberty-express.org/" target="_blank" rel="noopener noreferrer" title="RETURN TO HOSTING PLATFORM" style="position: fixed; top: 12px; right: 12px; z-index: 9999; width: 36px; height: 36px; background: rgba(8, 8, 12, 0.9); border: 1px solid rgba(0, 255, 102, 0.3); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease; box-shadow: 0 0 10px rgba(0, 255, 102, 0.1);" onmouseover="this.style.borderColor='#ccff00'" onmouseout="this.style.borderColor='rgba(0, 255, 102, 0.3)'">
+    <img src="https://www.liberty-express.org/uploads/1/4/4/3/144388675/published/xephula-03e8ca0b2a73247200891fbc5cf0796d-cropped.png?1696905236" alt="XEPHULA" style="width: 24px; height: 24px; object-fit: contain; filter: drop-shadow(0 0 2px rgba(0, 255, 102, 0.5));" />
+  </a>
+  <div id="top-banner">
+    <div class="banner-content">
+      <div class="channel-info">
+        <h1>IPTV Streams — Broadcast Desk</h1>
+        <div class="info-line now">NOW: <span id="now-playing">Loading Track...</span> <span style="color:#64748b;">(<span id="played-time">0:00:00</span>)</span></div>
+        <div class="info-line next">UP NEXT: <span id="next-title">...</span> <span class="highlight">at <span id="next-time">??:??</span></span></div>
+      </div>
+      <div id="clock-pill">
+        <div class="live-dot"></div>
+        <div id="clock">00:00:00</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="video-container">
+    <div id="video-desk-frame">
+      <div id="media-stage">
+        <video id="video-player" autoplay playsinline controls preload="auto"></video>
+        <div id="curtain-overlay">
+          <div id="curtain-left"></div>
+          <div id="curtain-right"></div>
+        </div>
+      </div>
+    </div>
+    <button id="fullscreen-btn" title="Toggle Fullscreen (F)">⛶</button>
+    <div id="control-bubble" title="Next channel segment loops">📺</div>
+  </div>
+
+  <div id="playlist-strip-container">
+    <div class="strip-wrapper">
+      <div class="strip-label">GUIDE FEED</div>
+      <div class="guide-strip" id="guide-strip"></div>
+    </div>
+  </div>
+
+<script>
+var playlist = [{"title":"Hogan's Heroes S03E01 The Crittendon Plan","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E01_The%20Crittendon%20Plan.mp4","episode":"Hogan's Heroes S03E01 The Crittendon Plan","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E01_The%20Crittendon%20Plan_001495.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E02 Some Of Their Planes Are Missing","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E02_Some%20Of%20Their%20Planes%20Are%20Missing.mp4","episode":"Hogan's Heroes S03E02 Some Of Their Planes Are Missing","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E02_Some%20Of%20Their%20Planes%20Are%20Missing_001496.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E03 D Day At Stalag 13","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E03_D%20Day%20At%20Stalag%2013.mp4","episode":"Hogan's Heroes S03E03 D Day At Stalag 13","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E03_D%20Day%20At%20Stalag%2013_001496.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E04 Sgt Schultz Meets Mata Hari","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E04_Sgt_%20Schultz%20Meets%20Mata%20Hari.mp4","episode":"Hogan's Heroes S03E04 Sgt Schultz Meets Mata Hari","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E04_Sgt_%20Schultz%20Meets%20Mata%20Hari_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E05 A Funny Thing Happened On The Way To London","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E05_A%20Funny%20Thing%20Happened%20On%20The%20Way%20To%20London.mp4","episode":"Hogan's Heroes S03E05 A Funny Thing Happened On The Way To London","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E05_A%20Funny%20Thing%20Happened%20On%20The%20Way%20To%20London_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E06 Casanova Klink","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E06_Casanova%20Klink.mp4","episode":"Hogan's Heroes S03E06 Casanova Klink","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E06_Casanova%20Klink_001496.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E08 Nights In Shining Armor","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E08_Nights%20In%20Shining%20Armor.mp4","episode":"Hogan's Heroes S03E08 Nights In Shining Armor","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E08_Nights%20In%20Shining%20Armor_001494.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E09 Hot Money","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E09_Hot%20Money.mp4","episode":"Hogan's Heroes S03E09 Hot Money","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E09_Hot%20Money_001541.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E10 Drums Along The Dusseldorf","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E10_Drums%20Along%20The%20Dusseldorf.mp4","episode":"Hogan's Heroes S03E10 Drums Along The Dusseldorf","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E10_Drums%20Along%20The%20Dusseldorf_001531.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E12 One In Every Crowd","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E12_One%20In%20Every%20Crowd.mp4","episode":"Hogan's Heroes S03E12 One In Every Crowd","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E12_One%20In%20Every%20Crowd_001496.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E13 A Russian Is Coming","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E13_A%20Russian%20Is%20Coming.mp4","episode":"Hogan's Heroes S03E13 A Russian Is Coming","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E13_A%20Russian%20Is%20Coming_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E14 Evenings Of Generals","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E14_Evenings%20Of%20Generals.mp4","episode":"Hogan's Heroes S03E14 Evenings Of Generals","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E14_Evenings%20Of%20Generals_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E15 Everybody Loves A Snowman","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E15_Everybody%20Loves%20A%20Snowman.mp4","episode":"Hogan's Heroes S03E15 Everybody Loves A Snowman","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E15_Everybody%20Loves%20A%20Snowman_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E17 Carter Turns Traitor","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E17_Carter%20Turns%20Traitor.mp4","episode":"Hogan's Heroes S03E17 Carter Turns Traitor","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E17_Carter%20Turns%20Traitor_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E18 Two Nazis For The Price Of One","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E18_Two%20Nazis%20For%20The%20Price%20Of%20One.mp4","episode":"Hogan's Heroes S03E18 Two Nazis For The Price Of One","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E18_Two%20Nazis%20For%20The%20Price%20Of%20One_001494.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E19 Is There A Doctor In The House","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E19_Is%20There%20A%20Doctor%20In%20The%20House.mp4","episode":"Hogan's Heroes S03E19 Is There A Doctor In The House","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E19_Is%20There%20A%20Doctor%20In%20The%20House_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E20 Hogan Go Home","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E20_Hogan%20Go%20Home.mp4","episode":"Hogan's Heroes S03E20 Hogan Go Home","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E20_Hogan%20Go%20Home_001496.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E21 Sticky Wicket Newkirk","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E21_Sticky%20Wicket%20Newkirk.mp4","episode":"Hogan's Heroes S03E21 Sticky Wicket Newkirk","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E21_Sticky%20Wicket%20Newkirk_001540.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E22 War Takes A Holiday","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E22_War%20Takes%20A%20Holiday.mp4","episode":"Hogan's Heroes S03E22 War Takes A Holiday","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E22_War%20Takes%20A%20Holiday_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E23 Duel Of Honor","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E23_Duel%20Of%20Honor.mp4","episode":"Hogan's Heroes S03E23 Duel Of Honor","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E23_Duel%20Of%20Honor_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E24 Axis Annie","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E24_Axis%20Annie.mp4","episode":"Hogan's Heroes S03E24 Axis Annie","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E24_Axis%20Annie_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E25 What Time Does The Balloon Go Up","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E25_What%20Time%20Does%20The%20Balloon%20Go%20Up.mp4","episode":"Hogan's Heroes S03E25 What Time Does The Balloon Go Up","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E25_What%20Time%20Does%20The%20Balloon%20Go%20Up_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E26 Le Beau And The Little Old Lady","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E26_Le%20Beau%20And%20The%20Little%20Old%20Lady.mp4","episode":"Hogan's Heroes S03E26 Le Beau And The Little Old Lady","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E26_Le%20Beau%20And%20The%20Little%20Old%20Lady_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E27 How To Escape From A Prison Without Really Leaving","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E27_How%20To%20Escape%20From%20A%20Prison%20Without%20Really%20Leaving.mp4","episode":"Hogan's Heroes S03E27 How To Escape From A Prison Without Really Leaving","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E27_How%20To%20Escape%20From%20A%20Prison%20Without%20Really%20Leaving_001495.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E28 The Collector General","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E28_The%20Collector%20General.mp4","episode":"Hogan's Heroes S03E28 The Collector General","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E28_The%20Collector%20General_001540.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E29 The Ultimate Weapon","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E29_The%20Ultimate%20Weapon.mp4","episode":"Hogan's Heroes S03E29 The Ultimate Weapon","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E29_The%20Ultimate%20Weapon_001542.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S03E30 Monkey Business","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S03E30_Monkey%20Business.mp4","episode":"Hogan's Heroes S03E30 Monkey Business","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S03E30_Monkey%20Business_001540.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E01 Clearance Sale At The Black Market","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E01_Clearance%20Sale%20At%20The%20Black%20Market.mp4","episode":"Hogan's Heroes S04E01 Clearance Sale At The Black Market","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E01_Clearance%20Sale%20At%20The%20Black%20Market_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E02 Klink VS The Gonculator","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E02_Klink%20VS%20The%20Gonculator.mp4","episode":"Hogan's Heroes S04E02 Klink VS The Gonculator","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E02_Klink%20VS%20The%20Gonculator_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E04 Hogan's Trucking Service","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E04_Hogan%27s%20Trucking%20Service.mp4","episode":"Hogan's Heroes S04E04 Hogan's Trucking Service","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E04_Hogan%27s%20Trucking%20Service_001551.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E05 To The Gestapo With Love","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E05_To%20The%20Gestapo%20With%20Love.mp4","episode":"Hogan's Heroes S04E05 To The Gestapo With Love","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E05_To%20The%20Gestapo%20With%20Love_001551.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E06 A Man's Best Friend Is Not His Dog","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E06_A%20Man%27s%20Best%20Friend%20Is%20Not%20His%20Dog.mp4","episode":"Hogan's Heroes S04E06 A Man's Best Friend Is Not His Dog","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E06_A%20Man%27s%20Best%20Friend%20Is%20Not%20His%20Dog_001551.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E07 Never Play Cards With Strangers","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E07_Never%20Play%20Cards%20With%20Strangers.mp4","episode":"Hogan's Heroes S04E07 Never Play Cards With Strangers","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E07_Never%20Play%20Cards%20With%20Strangers_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E08 Color The Luftwaffe Red","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E08_Color%20The%20Luftwaffe%20Red.mp4","episode":"Hogan's Heroes S04E08 Color The Luftwaffe Red","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E08_Color%20The%20Luftwaffe%20Red_001550.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E09 Guess Who Came To Dinner","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E09_Guess%20Who%20Came%20To%20Dinner.mp4","episode":"Hogan's Heroes S04E09 Guess Who Came To Dinner","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E09_Guess%20Who%20Came%20To%20Dinner_001501.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E10 No Names Please","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E10_No%20Names%20Please.mp4","episode":"Hogan's Heroes S04E10 No Names Please","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E10_No%20Names%20Please_001505.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E11 Bad Day In Berlin","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E11_Bad%20Day%20In%20Berlin.mp4","episode":"Hogan's Heroes S04E11 Bad Day In Berlin","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E11_Bad%20Day%20In%20Berlin_001505.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E12 Will The Blue Baron Strike Again","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E12_Will%20The%20Blue%20Baron%20Strike%20Again.mp4","episode":"Hogan's Heroes S04E12 Will The Blue Baron Strike Again","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E12_Will%20The%20Blue%20Baron%20Strike%20Again_001505.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E13 Will The Real Col Klink Stand Against The Wall","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E13_Will%20The%20Real%20Col_%20Klink%20Stand%20Against%20The%20Wall.mp4","episode":"Hogan's Heroes S04E13 Will The Real Col Klink Stand Against The Wall","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E13_Will%20The%20Real%20Col_%20Klink%20Stand%20Against%20The%20Wall_001506.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E14 The Man In A Box","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E14_The%20Man%20In%20A%20Box.mp4","episode":"Hogan's Heroes S04E14 The Man In A Box","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E14_The%20Man%20In%20A%20Box_001506.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E15 The Missing Klink","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E15_The%20Missing%20Klink.mp4","episode":"Hogan's Heroes S04E15 The Missing Klink","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E15_The%20Missing%20Klink_001507.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E16 Who Stole My Copy Of Mein Kampf","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E16_Who%20Stole%20My%20Copy%20Of%20Mein%20Kampf.mp4","episode":"Hogan's Heroes S04E16 Who Stole My Copy Of Mein Kampf","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E16_Who%20Stole%20My%20Copy%20Of%20Mein%20Kampf_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E17 Operation Hannibal","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E17_Operation%20Hannibal.mp4","episode":"Hogan's Heroes S04E17 Operation Hannibal","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E17_Operation%20Hannibal_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E18 My Favorite Prisoner","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E18_My%20Favorite%20Prisoner.mp4","episode":"Hogan's Heroes S04E18 My Favorite Prisoner","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E18_My%20Favorite%20Prisoner_001550.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E19 Watch The Trains Go By","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E19_Watch%20The%20Trains%20Go%20By.mp4","episode":"Hogan's Heroes S04E19 Watch The Trains Go By","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E19_Watch%20The%20Trains%20Go%20By_001553.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E20 Klink's Old Flame","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E20_Klink%27s%20Old%20Flame.mp4","episode":"Hogan's Heroes S04E20 Klink's Old Flame","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E20_Klink%27s%20Old%20Flame_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E21 Up In Klink's Room","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E21_Up%20In%20Klink%27s%20Room.mp4","episode":"Hogan's Heroes S04E21 Up In Klink's Room","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E21_Up%20In%20Klink%27s%20Room_001553.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E22 The Witness","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E22_The%20Witness.mp4","episode":"Hogan's Heroes S04E22 The Witness","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E22_The%20Witness_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E23 The Purchasing Plan","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E23_The%20Purchasing%20Plan.mp4","episode":"Hogan's Heroes S04E23 The Purchasing Plan","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E23_The%20Purchasing%20Plan_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E24 The Big Dish","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E24_The%20Big%20Dish.mp4","episode":"Hogan's Heroes S04E24 The Big Dish","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E24_The%20Big%20Dish_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E25 The Return Of Major Bonacelli","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E25_The%20Return%20Of%20Major%20Bonacelli.mp4","episode":"Hogan's Heroes S04E25 The Return Of Major Bonacelli","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E25_The%20Return%20Of%20Major%20Bonacelli_001557.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S04E26 Happy Birthday Dear Hogan","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S04E26_Happy%20Birthday%20Dear%20Hogan.mp4","episode":"Hogan's Heroes S04E26 Happy Birthday Dear Hogan","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S04E26_Happy%20Birthday%20Dear%20Hogan_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E02 The Well","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E02_The%20Well.mp4","episode":"Hogan's Heroes S05E02 The Well","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E02_The%20Well_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E03 The Klink Commandos","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E03_The%20Klink%20Commandos.mp4","episode":"Hogan's Heroes S05E03 The Klink Commandos","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E03_The%20Klink%20Commandos_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E04 The Gasoline War","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E04_The%20Gasoline%20War.mp4","episode":"Hogan's Heroes S05E04 The Gasoline War","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E04_The%20Gasoline%20War_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E05 Unfair Exchange","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E05_Unfair%20Exchange.mp4","episode":"Hogan's Heroes S05E05 Unfair Exchange","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E05_Unfair%20Exchange_001551.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E06 The Kommandant Dies At Dawn","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E06_The%20Kommandant%20Dies%20At%20Dawn.mp4","episode":"Hogan's Heroes S05E06 The Kommandant Dies At Dawn","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E06_The%20Kommandant%20Dies%20At%20Dawn_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E07 Bombsight","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E07_Bombsight.mp4","episode":"Hogan's Heroes S05E07 Bombsight","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E07_Bombsight_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E08 The Big Picture","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E08_The%20Big%20Picture.mp4","episode":"Hogan's Heroes S05E08 The Big Picture","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E08_The%20Big%20Picture_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E09 The Big Gamble","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E09_The%20Big%20Gamble.mp4","episode":"Hogan's Heroes S05E09 The Big Gamble","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E09_The%20Big%20Gamble_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E10 The Defector","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E10_The%20Defector.mp4","episode":"Hogan's Heroes S05E10 The Defector","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E10_The%20Defector_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E11 The Empty Parachute","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E11_The%20Empty%20Parachute.mp4","episode":"Hogan's Heroes S05E11 The Empty Parachute","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E11_The%20Empty%20Parachute_001554.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E12 The Antique","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E12_The%20Antique.mp4","episode":"Hogan's Heroes S05E12 The Antique","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E12_The%20Antique_001519.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E13 Is There A Traitor In The House","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E13_Is%20There%20A%20Traitor%20In%20The%20House_.mp4","episode":"Hogan's Heroes S05E13 Is There A Traitor In The House","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E13_Is%20There%20A%20Traitor%20In%20The%20House__001555.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E16 Gowns By Yvett","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E16_Gowns%20By%20Yvett.mp4","episode":"Hogan's Heroes S05E16 Gowns By Yvett","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E16_Gowns%20By%20Yvett_001555.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E17 Get Fit Or Go Fight","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E17_Get%20Fit%20Or%20Go%20Fight.mp4","episode":"Hogan's Heroes S05E17 Get Fit Or Go Fight","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E17_Get%20Fit%20Or%20Go%20Fight_001555.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E18 Fat Herman, Go Home","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E18_Fat%20Herman%2C%20Go%20Home.mp4","episode":"Hogan's Heroes S05E18 Fat Herman, Go Home","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E18_Fat%20Herman%2C%20Go%20Home_001555.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E19 The Softer They Fall","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E19_The%20Softer%20They%20Fall.mp4","episode":"Hogan's Heroes S05E19 The Softer They Fall","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E19_The%20Softer%20They%20Fall_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E20 One Army At A Time","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E20_One%20Army%20At%20A%20Time.mp4","episode":"Hogan's Heroes S05E20 One Army At A Time","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E20_One%20Army%20At%20A%20Time_001555.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E21 Standing Room Only","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E21_Standing%20Room%20Only.mp4","episode":"Hogan's Heroes S05E21 Standing Room Only","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E21_Standing%20Room%20Only_001557.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E23 The Sergeant's Analyst","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E23_The%20Sergeant%27s%20Analyst.mp4","episode":"Hogan's Heroes S05E23 The Sergeant's Analyst","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E23_The%20Sergeant%27s%20Analyst_001544.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E25 Crittendon's Commandos","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E25_Crittendon%27s%20Commandos.mp4","episode":"Hogan's Heroes S05E25 Crittendon's Commandos","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E25_Crittendon%27s%20Commandos_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S05E26 Klink's Escape","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S05E26_Klink%27s%20Escape.mp4","episode":"Hogan's Heroes S05E26 Klink's Escape","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S05E26_Klink%27s%20Escape_001557.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E01 Cuisine A La Stalag 13","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E01_Cuisine%20A%20La%20Stalag%2013.mp4","episode":"Hogan's Heroes S06E01 Cuisine A La Stalag 13","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E01_Cuisine%20A%20La%20Stalag%2013_001557.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E02 The Experts","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E02_The%20Experts.mp4","episode":"Hogan's Heroes S06E02 The Experts","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E02_The%20Experts_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E03 Klink'S Masterpiece","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E03_Klink%27S%20Masterpiece.mp4","episode":"Hogan's Heroes S06E03 Klink'S Masterpiece","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E03_Klink%27S%20Masterpiece_001531.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E04 Lady Chitterly'S Lover (Part 1)","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E04_Lady%20Chitterly%27S%20Lover%20%28Part%201%29.mp4","episode":"Hogan's Heroes S06E04 Lady Chitterly'S Lover (Part 1)","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E04_Lady%20Chitterly%27S%20Lover%20%28Part%201%29_001531.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E05 Lady Chitterly'S Lover (Part 2)","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E05_Lady%20Chitterly%27S%20Lover%20%28Part%202%29.mp4","episode":"Hogan's Heroes S06E05 Lady Chitterly'S Lover (Part 2)","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E05_Lady%20Chitterly%27S%20Lover%20%28Part%202%29_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E06 The Gestapo Takeover","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E06_The%20Gestapo%20Takeover.mp4","episode":"Hogan's Heroes S06E06 The Gestapo Takeover","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E06_The%20Gestapo%20Takeover_001530.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E07 Commandant Schultz","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E07_Commandant%20Schultz.mp4","episode":"Hogan's Heroes S06E07 Commandant Schultz","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E07_Commandant%20Schultz_001530.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E08 Eight O'Clock And All Is Well","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E08_Eight%20O%27Clock%20And%20All%20Is%20Well.mp4","episode":"Hogan's Heroes S06E08 Eight O'Clock And All Is Well","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E08_Eight%20O%27Clock%20And%20All%20Is%20Well_001530.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E10 It'S Dynamite","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E10_It%27S%20Dynamite.mp4","episode":"Hogan's Heroes S06E10 It'S Dynamite","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E10_It%27S%20Dynamite_001533.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E11 Operation Tiger","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E11_Operation%20Tiger.mp4","episode":"Hogan's Heroes S06E11 Operation Tiger","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E11_Operation%20Tiger_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E12 The Big Broadcast","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E12_The%20Big%20Broadcast.mp4","episode":"Hogan's Heroes S06E12 The Big Broadcast","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E12_The%20Big%20Broadcast_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E13 The Gypsy","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E13_The%20Gypsy.mp4","episode":"Hogan's Heroes S06E13 The Gypsy","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E13_The%20Gypsy_001481.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E14 The Dropouts","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E14_The%20Dropouts.mp4","episode":"Hogan's Heroes S06E14 The Dropouts","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E14_The%20Dropouts_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E15 Easy Come, Easy Go","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E15_Easy%20Come%2C%20Easy%20Go.mp4","episode":"Hogan's Heroes S06E15 Easy Come, Easy Go","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E15_Easy%20Come%2C%20Easy%20Go_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E16 The Meister Spy","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E16_The%20Meister%20Spy.mp4","episode":"Hogan's Heroes S06E16 The Meister Spy","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E16_The%20Meister%20Spy_001543.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E17 That'S No Lady, That'S My Spy","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E17_That%27S%20No%20Lady%2C%20That%27S%20My%20Spy.mp4","episode":"Hogan's Heroes S06E17 That'S No Lady, That'S My Spy","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E17_That%27S%20No%20Lady%2C%20That%27S%20My%20Spy_001535.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E18 To Russia Without Love","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E18_To%20Russia%20Without%20Love.mp4","episode":"Hogan's Heroes S06E18 To Russia Without Love","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E18_To%20Russia%20Without%20Love_001537.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E19 Klink For The Defense","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E19_Klink%20For%20The%20Defense.mp4","episode":"Hogan's Heroes S06E19 Klink For The Defense","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E19_Klink%20For%20The%20Defense_000001.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E20 The Kamikazes Are Coming","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E20_The%20Kamikazes%20Are%20Coming.mp4","episode":"Hogan's Heroes S06E20 The Kamikazes Are Coming","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E20_The%20Kamikazes%20Are%20Coming_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E21 Commandant Gertrude","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E21_Commandant%20Gertrude.mp4","episode":"Hogan's Heroes S06E21 Commandant Gertrude","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E21_Commandant%20Gertrude_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E23 Hogan'S Double Life","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E23_Hogan%27S%20Double%20Life.mp4","episode":"Hogan's Heroes S06E23 Hogan'S Double Life","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E23_Hogan%27S%20Double%20Life_001539.jpg","userAgent":"","referer":""},{"title":"Hogan's Heroes S06E24 Rockets Or Romance","url":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/Hogan%27s%20Heroes_S06E24_Rockets%20Or%20Romance.mp4","episode":"Hogan's Heroes S06E24 Rockets Or Romance","group":"General","duration":3600,"tvg-logo":"https://archive.org/download/hogans-heroes-s-01-e-01-the-informer_202509/hogans-heroes-s-01-e-01-the-informer_202509.thumbs/Hogan%27s%20Heroes_S06E24_Rockets%20Or%20Romance_001539.jpg","userAgent":"","referer":""}];
+var currentIndex = 0;
+var video = document.getElementById('video-player');
+var guideStrip = document.getElementById('guide-strip');
+var curtainOverlay = document.getElementById('curtain-overlay');
+var consecutiveErrorCount = 0;
+
+function formatTime(seconds) {
+  var h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+  var m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+  var s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return h + ':' + m + ':' + s;
+}
+
+function updatePlayedTime() {
+  if (video && video.currentTime) {
+    document.getElementById('played-time').textContent = formatTime(video.currentTime);
+  }
+}
+
+function updateClock() {
+  var d = new Date();
+  document.getElementById('clock').textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+}
+
+function calculateNextStart() {
+  if(!video || !video.duration) return;
+  var remaining = video.duration - video.currentTime;
+  var nextStart = new Date(Date.now() + remaining * 1000);
+  document.getElementById('next-time').textContent = nextStart.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+// Render lazy layout structures with skeletons, always hydrating neighboring items to ensure at least 3 visible items are filled
+function renderGuideStrip() {
+  if (!guideStrip) return;
+  guideStrip.innerHTML = '';
+  
+  playlist.forEach(function(item, index) {
+    var guideItem = document.createElement('div');
+    guideItem.className = 'guide-item placeholder';
+    guideItem.id = 'guide-item-' + index;
+    guideItem.setAttribute('data-index', index);
+    
+    // Skeleton loader
+    guideItem.innerHTML = '<div class="card-skeleton"></div>';
+    
+    guideItem.addEventListener('click', function(){
+      playCurtainTransition(function(){
+        playMovie(index);
+      });
+    });
+    guideStrip.appendChild(guideItem);
+  });
+
+  initLazyObserver();
+  updateActiveGuideItem();
+}
+
+function hydrateCard(index) {
+  var card = document.getElementById('guide-item-' + index);
+  if (!card || !card.classList.contains('placeholder')) return;
+  
+  card.classList.remove('placeholder');
+  var item = playlist[index];
+  var badge = (item.userAgent || item.referer) 
+    ? ' <span class="text-amber-500" title="This stream requires custom HTTP headers — may not play in all browsers.">🔑</span>' 
+    : '';
+  card.innerHTML = '<div class="guide-title">' + item.title + badge + '</div>' + 
+                   '<div class="guide-time">#' + (index+1) + ' • ' + (item.group || 'AJN Broadcast') + '</div>';
+}
+
+function forceHydrateAdjacent() {
+  var prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+  var nextIndex = (currentIndex + 1) % playlist.length;
+  hydrateCard(currentIndex);
+  hydrateCard(prevIndex);
+  hydrateCard(nextIndex);
+}
+
+function initLazyObserver() {
+  if (!window.IntersectionObserver) {
+    // Fallback if browser environment lacks IntersectionObserver
+    for (var i = 0; i < playlist.length; i++) {
+      hydrateCard(i);
+    }
+    return;
+  }
+  
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        var idx = parseInt(entry.target.getAttribute('data-index'), 10);
+        hydrateCard(idx);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, {
+    root: guideStrip,
+    rootMargin: '120px',
+    threshold: 0.05
+  });
+  
+  var cards = guideStrip.querySelectorAll('.guide-item');
+  cards.forEach(function(card) {
+    observer.observe(card);
+  });
+  
+  forceHydrateAdjacent();
+}
+
+function updateActiveGuideItem() {
+  if (!guideStrip) return;
+  
+  var items = guideStrip.querySelectorAll('.guide-item');
+  items.forEach(function(item) {
+    var idx = parseInt(item.getAttribute('data-index'), 10);
+    if (idx === currentIndex) {
+      item.classList.add('current');
+    } else {
+      item.classList.remove('current');
+    }
+  });
+
+  forceHydrateAdjacent();
+  
+  var current = guideStrip.querySelector('.current');
+  if (current) {
+    current.scrollIntoView({behavior: 'smooth', inline: 'center', block: 'nearest'});
+  }
+}
+
+function playCurtainTransition(onMidpoint) {
+  if(!curtainOverlay) { if(onMidpoint) onMidpoint(); return; }
+  curtainOverlay.classList.add('closed');
+  setTimeout(function(){
+    if(onMidpoint) onMidpoint();
+    setTimeout(function(){
+      curtainOverlay.classList.remove('closed');
+    }, 150);
+  }, 480);
+}
+
+function playMovie(index, initialSeekTime) {
+  if (playlist.length === 0) return;
+  if(index < 0 || index >= playlist.length) index = 0;
+  currentIndex = index;
+  var movie = playlist[index];
+  var nextMovie = playlist[(index + 1) % playlist.length];
+  
+  document.getElementById('now-playing').textContent = movie.title;
+  document.getElementById('next-title').textContent = nextMovie ? nextMovie.title : 'End of Loop';
+  
+  video.src = movie.url;
+  video.load();
+  
+  if (initialSeekTime && initialSeekTime > 0) {
+    var handleSeek = function() {
+      video.removeEventListener('loadedmetadata', handleSeek);
+      video.currentTime = Math.min(initialSeekTime, video.duration - 1);
+    };
+    video.addEventListener('loadedmetadata', handleSeek);
+  }
+
+  video.play().catch(function(e) {
+    console.log('Autoplay blocked. Awaiting user gesture.');
+  });
+  
+  updateActiveGuideItem();
+  calculateNextStart();
+  updatePlayedTime();
+}
+
+video.addEventListener('ended', function(){
+  consecutiveErrorCount = 0;
+  playCurtainTransition(function(){
+    playMovie((currentIndex + 1) % playlist.length);
+  });
+});
+
+video.addEventListener('error', function(e){
+  consecutiveErrorCount++;
+  console.error("Playback error encountered on source:", video.src);
+  if(consecutiveErrorCount < 5) {
+    setTimeout(function(){
+      playMovie((currentIndex + 1) % playlist.length);
+    }, 2000);
+  }
+});
+
+video.addEventListener('canplay', function(){
+  consecutiveErrorCount = 0;
+});
+
+video.addEventListener('timeupdate', function(){
+  updatePlayedTime();
+  calculateNextStart();
+});
+
+function toggleFullscreen() {
+  if(!document.fullscreenElement && !document.webkitFullscreenElement) {
+    var el = document.body;
+    if(el.requestFullscreen) el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  } else {
+    if(document.exitFullscreen) document.exitFullscreen();
+    else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+  }
+}
+
+document.getElementById('control-bubble').addEventListener('click', function() {
+  playCurtainTransition(function() {
+    playMovie((currentIndex + 1) % playlist.length);
+  });
+});
+
+var fsBtn = document.getElementById('fullscreen-btn');
+if(fsBtn) fsBtn.addEventListener('click', toggleFullscreen);
+
+document.addEventListener('keydown', function(e) {
+  if(e.key === 'ArrowRight') {
+    playCurtainTransition(function(){ playMovie((currentIndex + 1) % playlist.length); });
+  }
+  if(e.key === 'ArrowLeft') {
+    playCurtainTransition(function(){ playMovie((currentIndex - 1 + playlist.length) % playlist.length); });
+  }
+  if(e.key === ' '){
+    e.preventDefault();
+    video.paused ? video.play() : video.pause();
+  }
+  if(e.key === 'f' || e.key === 'F') toggleFullscreen();
+});
+
+// Midnight synchronization anchor loop calculations
+function initMidnightBroadcastSync() {
+  var now = new Date();
+  var hours = now.getHours();
+  var minutes = now.getMinutes();
+  var seconds = now.getSeconds();
+  var secondsPastMidnight = (hours * 3600) + (minutes * 60) + seconds;
+
+  var totalPlaylistDuration = 0;
+  for (var p = 0; p < playlist.length; p++) {
+    totalPlaylistDuration += (playlist[p].duration || 3600);
+  }
+
+  if (totalPlaylistDuration <= 0) {
+    playMovie(0);
+    return;
+  }
+
+  var relativeOffsetSeconds = secondsPastMidnight % totalPlaylistDuration;
+  var accumulated = 0;
+  var targetIndex = 0;
+  var targetSeekOffset = 0;
+
+  for (var i = 0; i < playlist.length; i++) {
+    var itemDuration = playlist[i].duration || 3600;
+    if (accumulated + itemDuration > relativeOffsetSeconds) {
+      targetIndex = i;
+      targetSeekOffset = relativeOffsetSeconds - accumulated;
+      break;
+    }
+    accumulated += itemDuration;
+  }
+
+  playMovie(targetIndex, targetSeekOffset);
+}
+
+if(playlist.length > 0) {
+  updateClock();
+  setInterval(updateClock, 1000);
+  renderGuideStrip();
+  initMidnightBroadcastSync();
+} else {
+  document.getElementById('now-playing').textContent = 'No active segments loaded in the playlist.';
+}
+</script>
+</body>
+</html>
